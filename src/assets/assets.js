@@ -437,7 +437,7 @@ export const dummyProducts = [
   },
   {
     _id: "ek60j01k",
-    name: "",
+    name: "Cheese 200g",
     category: "Dairy",
     price: 140,
     offerPrice: 130,
