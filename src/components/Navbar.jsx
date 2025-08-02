@@ -1,225 +1,60 @@
-import React, { useEffect } from 'react'
-import { NavLink } from 'react-router-dom'
-import { assets } from '../assets/assets'
-import { useAppContext } from '../context/AppContext'
-import toast from 'react-hot-toast'
+import { NavLink } from "react-router-dom";
+import { useContext } from "react";
+import { AppContext } from "../context/AppContext";
+import { Home, Leaf, MoreHorizontal } from "lucide-react"; // Icons
 
-const Navbar = () => {
-  const [open, setOpen] = React.useState(false)
-  const { user, setUser, setShowUserLogin, navigate, setSearchQuery, searchQuery, getCartCount, axios } = useAppContext();
+const Sidebar = () => {
+  const { mangoData } = useContext(AppContext);
 
-  const logout = async () => {
-    try {
-      const { data } = await axios.get('/api/user/logout')
-      if (data.success) {
-        toast.success(data.message)
-        setUser(null);
-        navigate('/')
-      } else {
-        toast.error(data.message)
-      }
-    } catch (error) {
-      toast.error(error.message)
-    }
-  }
+  const sidebarLinks = [
+    { name: "Home", path: "/", icon: <Home /> },
+    { name: "Disease", path: "/Disease", icon: <Leaf /> },
+    { name: "More", path: "/More", icon: <MoreHorizontal /> },
+  ];
 
-  useEffect(() => {
-    if (searchQuery.length > 0) {
-      navigate("/products")
-    }
-  }, [searchQuery])
-
-  const navLinkStyles = ({ isActive }) =>
-    `relative pb-1 transition-all ${isActive
-      ? 'text-[#F7931E] after:content-[""] after:absolute after:bottom-0 after:left-0 after:w-full after:h-[2px] after:bg-[#F7931E]'
-      : 'hover:text-[#F7931E]'
-    }`;
+  const filteredLinks = mangoData.status
+    ? mangoData.status.toLowerCase() === "healthy"
+      ? sidebarLinks.filter(link => link.name === "Home" || link.name === "More")
+      : sidebarLinks
+    : sidebarLinks.filter(link => link.name === "Home");
 
   return (
-    <nav className="flex items-center justify-between px-6 md:px-16 lg:px-24 xl:px-32 py-4 border-b border-gray-300 bg-white relative transition-all">
 
-      <NavLink to='/' onClick={() => setOpen(false)}>
-        <img className="h-14" src="logo.png" alt="logo" />
-      </NavLink>
+    <>
+    
+    <nav className="fixed bg-[#FFF8E1] top-0 left-0 right-0 z-50 flex items-center justify-between px-6 md:px-16 lg:px-24 xl:px-32 py-4  shadow">
 
-      {/* Desktop Menu */}
-      <div className="hidden sm:flex items-center gap-8">
-        <NavLink to='/' className={navLinkStyles} onClick={() => setOpen(false)}>Home</NavLink>
-        <NavLink to='/products' className={navLinkStyles} onClick={() => setOpen(false)}>All Product</NavLink>
-   
+            <a href="/">
+          <img src="/logo.jpg" alt="logo" className="w-18" />
+            </a>
 
-        <div className="hidden lg:flex items-center text-sm gap-2 border border-gray-600 px-3 rounded-full">
-          <input onChange={(e) => setSearchQuery(e.target.value)} className="py-1.5 w-full bg-transparent outline-none placeholder-gray-500" type="text" placeholder="Search products" />
-          <img src={assets.search_icon} alt='search' className='w-4 h-4' />
-        </div>
+          
 
-        <div onClick={() => navigate("/cart")} className="relative cursor-pointer">
-          <img src={assets.nav_cart_icon} alt='cart' className='w-6 opacity-80' />
-          <button className="absolute -top-2 -right-3 text-xs text-white bg-pinky w-[18px] h-[18px] rounded-full">{getCartCount()}</button>
-        </div>
+        </nav>
+    <div className=" fixed top-[90px]  md:w-64 w-16 bg-[#FFF8E1] border-r h-[100vh] text-base border-yellow-300 pt-6  flex flex-col shadow-md transition-all duration-300">
+     
+     
+      {filteredLinks.map((item) => (
+        <NavLink
+          to={item.path}
+          key={item.name}
+          end={item.path === "/"}
+          className={({ isActive }) =>
+            `flex items-center gap-4 py-3 px-4 rounded-r-full mx-2 my-1 transition-all duration-200 
+            ${
+              isActive
+                ? "bg-amber-200 text-amber-800 font-semibold shadow-inner"
+                : "hover:bg-yellow-100 text-gray-600"
+            }`
+          }
+        >
+          <span className="text-amber-700">{item.icon}</span>
+          <span className="md:block hidden">{item.name}</span>
+        </NavLink>
+      ))}
+    </div>
+    </>
+  );
+};
 
-        {!user ? (
-          <button onClick={() => setShowUserLogin(true)} className="cursor-pointer px-8 py-2 bg-pinky hover:bg-pinky-dull transition text-white rounded-full">
-            Login
-          </button>
-        ) : (
-          <div className='relative group'>
-            <img src={assets.profile_icon} className='w-10' alt="" />
-            <ul className='hidden group-hover:block absolute top-10 right-0 bg-white shadow border border-gray-200 py-2.5 w-30 rounded-md text-sm z-40'>
-              <li onClick={() => navigate("my-orders")} className='p-1.5 pl-3 hover:bg-primary/10 cursor-pointer'>My Orders</li>
-              <li onClick={logout} className='p-1.5 pl-3 hover:bg-primary/10 cursor-pointer'>Logout</li>
-            </ul>
-          </div>
-        )}
-      </div>
-
-      {/* Mobile Menu Toggle */}
-      <div className='flex items-center gap-6 sm:hidden'>
-        <div onClick={() => navigate("/cart")} className="relative cursor-pointer">
-          <img src={assets.nav_cart_icon} alt='cart' className='w-6 opacity-80' />
-          <button className="absolute -top-2 -right-3 text-xs text-white bg-pinky w-[18px] h-[18px] rounded-full">{getCartCount()}</button>
-        </div>
-        <button onClick={() => setOpen(!open)} aria-label="Menu">
-          <img src={assets.menu_icon} alt='menu' />
-        </button>
-      </div>
-
-      {/* Mobile Menu Dropdown */}
-      {open && (
-        <div className="absolute top-[60px] left-0 w-full bg-white shadow-md py-4 flex-col items-start gap-2 px-5 text-sm md:hidden z-50 flex">
-          <NavLink to="/" className={navLinkStyles} onClick={() => setOpen(false)}>Home</NavLink>
-          <NavLink to="/products" className={navLinkStyles} onClick={() => setOpen(false)}>All Product</NavLink>
-          {user && <NavLink to="/my-orders" className={navLinkStyles} onClick={() => setOpen(false)}>My Orders</NavLink>}
-      
-
-          {!user ? (
-            <button onClick={() => {
-              setOpen(false);
-              setShowUserLogin(true);
-            }} className="cursor-pointer px-6 py-2 mt-2 bg-primary hover:bg-primary-dull transition text-white rounded-full text-sm">
-              Login
-            </button>
-          ) : (
-            <button onClick={logout} className="cursor-pointer px-6 py-2 mt-2 bg-primary hover:bg-primary-dull transition text-white rounded-full text-sm">
-              Logout
-            </button>
-          )}
-        </div>
-      )}
-    </nav>
-  )
-}
-
-export default Navbar
-
-
-// import React, { useEffect } from 'react'
-// import { NavLink } from 'react-router-dom'
-// import { assets } from '../assets/assets'
-// import { useAppContext } from '../context/AppContext'
-// import toast from 'react-hot-toast'
-
-// const Navbar = () => {
-//     const [open, setOpen] = React.useState(false)
-//     const {user, setUser, setShowUserLogin, navigate, setSearchQuery, searchQuery, getCartCount, axios} = useAppContext();
-
-//     const logout = async ()=>{
-//       try {
-//         const { data } = await axios.get('/api/user/logout')
-//         if(data.success){
-//           toast.success(data.message)
-//           setUser(null);
-//           navigate('/')
-//         }else{
-//           toast.error(data.message)
-//         }
-//       } catch (error) {
-//         toast.error(error.message)
-//       }
-        
-//     }
-
-//     useEffect(()=>{
-//       if(searchQuery.length > 0){
-//         navigate("/products")
-//       }
-//     },[searchQuery])
-
-//   return (
-//     <nav className="flex items-center justify-between px-6 md:px-16 lg:px-24 xl:px-32 py-4 border-b border-gray-300 bg-white relative transition-all">
-
-//       <NavLink to='/' onClick={()=> setOpen(false)}>
-//         <img className="h-14" src="logo.png" alt="logo" />
-//       </NavLink>
-
-//       <div className="hidden sm:flex items-center gap-8">
-//         <NavLink to='/'>Home</NavLink>
-//         <NavLink to='/products'>All Product</NavLink>
-//         <NavLink to='/'>Contact</NavLink>
-
-//         <div className="hidden lg:flex items-center text-sm gap-2 border border-gray-300 px-3 rounded-full">
-//           <input onChange={(e)=> setSearchQuery(e.target.value)} className="py-1.5 w-full bg-transparent outline-none placeholder-gray-500" type="text" placeholder="Search products" />
-//          <img src={assets.search_icon} alt='search' className='w-4 h-4'/>
-//         </div>
-
-//         <div onClick={()=> navigate("/cart")} className="relative cursor-pointer">
-//           <img src={assets.nav_cart_icon} alt='cart' className='w-6 opacity-80'/>
-//           <button className="absolute -top-2 -right-3 text-xs text-white bg-primary w-[18px] h-[18px] rounded-full">{getCartCount()}</button>
-//         </div>
-
-//       {!user ? ( <button onClick={()=> setShowUserLogin(true)} className="cursor-pointer px-8 py-2 bg-primary hover:bg-primary-dull transition text-white rounded-full">
-//           Login
-//         </button>)
-//         :
-//         (
-//           <div className='relative group'>
-//             <img src={assets.profile_icon} className='w-10' alt="" />
-//             <ul className='hidden group-hover:block absolute top-10 right-0 bg-white shadow border border-gray-200 py-2.5 w-30 rounded-md text-sm z-40'>
-//               <li onClick={()=> navigate("my-orders")} className='p-1.5 pl-3 hover:bg-primary/10 cursor-pointer'>My Orders</li>
-//               <li onClick={logout} className='p-1.5 pl-3 hover:bg-primary/10 cursor-pointer'>Logout</li>
-//             </ul>
-//           </div>
-//         )}
-//       </div>
-
-// <div className='flex items-center gap-6 sm:hidden'>
-//       <div onClick={()=> navigate("/cart")} className="relative cursor-pointer">
-//           <img src={assets.nav_cart_icon} alt='cart' className='w-6 opacity-80'/>
-//           <button className="absolute -top-2 -right-3 text-xs text-white bg-primary w-[18px] h-[18px] rounded-full">{getCartCount()}</button>
-//         </div>
-//     <button onClick={() => open ? setOpen(false) : setOpen(true)} aria-label="Menu" className="">
-//         <img  src={assets.menu_icon} alt='menu'/>
-//       </button>
-// </div>
-      
-
-//       { open && (
-//         <div className={`${open ? 'flex' : 'hidden'} absolute top-[60px] left-0 w-full bg-white shadow-md py-4 flex-col items-start gap-2 px-5 text-sm md:hidden`}>
-//         <NavLink to="/" onClick={()=> setOpen(false)}>Home</NavLink>
-//         <NavLink to="/products" onClick={()=> setOpen(false)}>All Product</NavLink>
-//         {user && 
-//         <NavLink to="/products" onClick={()=> setOpen(false)}>My Orders</NavLink>
-//         }
-//         <NavLink to="/" onClick={()=> setOpen(false)}>Contact</NavLink>
-
-//         {!user ? (
-//           <button onClick={()=>{
-//             setOpen(false);
-//             setShowUserLogin(true);
-//           }} className="cursor-pointer px-6 py-2 mt-2 bg-primary hover:bg-primary-dull transition text-white rounded-full text-sm">
-//           Login
-//         </button>
-//         ) : (
-//           <button onClick={logout} className="cursor-pointer px-6 py-2 mt-2 bg-primary hover:bg-primary-dull transition text-white rounded-full text-sm">
-//           Logout
-//         </button>
-//         )}
-        
-//       </div>
-//       )}
-
-//     </nav>
-//   )
-// }
-
-// export default Navbar
+export default Sidebar;

@@ -5,18 +5,18 @@
 *{
   font-family: "Outfit", sans-serif;
 }
-
-@theme {
-  /* --color-primary: #4fbf8b;
-  --color-primary-dull: #44ae7c; */
-    --color-primary: #F7931E;
-  --color-primary-dull: #FBBF77;
-  --color-pinky:#F7931E;
-    --color-pinky-dull:#FBBF77;
-
-
+body {
+  min-height: 100vh;
+  background: linear-gradient(to bottom right, #ff9900cc, #FFEB3B, #FF9800);
+  margin: 0;
+  padding: 0;
+  font-family: sans-serif;
 }
+
+/* #FFF9C4 */
 
 .no-scrollbar::-webkit-scrollbar{
   display: none;
 }
+
+
