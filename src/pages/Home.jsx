@@ -644,6 +644,7 @@ const Home = () => {
   const fileInputRef = useRef(null);
   const location = useLocation();
   const navigate = useNavigate();
+  const isCameraAvailable = navigator.mediaDevices && navigator.mediaDevices.getUserMedia;
 
   useEffect(() => {
     // Check if popup has been shown before
@@ -666,7 +667,7 @@ const Home = () => {
 
     if (savedFiles && savedPreview && savedPreview.length > 0) {
       console.log("Restoring from location.state:", {
-        savedFiles: savedFiles.map(f => ({ name: f.name, type: f.type, size: f.size })),
+        savedFiles: savedFiles.map((f) => ({ name: f.name, type: f.type, size: f.size })),
         savedPreview,
       });
 
@@ -680,7 +681,7 @@ const Home = () => {
 
       sessionStorage.setItem(
         "savedFiles",
-        JSON.stringify(savedFiles.map(f => ({
+        JSON.stringify(savedFiles.map((f) => ({
           name: f.name,
           type: f.type,
           size: f.size,
@@ -704,7 +705,7 @@ const Home = () => {
 
           if (
             Array.isArray(parsedPreview) &&
-            parsedPreview.every(img => img.url && img.number && img.id) &&
+            parsedPreview.every((img) => img.url && img.number && img.id) &&
             Array.isArray(parsedFiles)
           ) {
             console.log("Restoring from sessionStorage:", {
@@ -744,7 +745,7 @@ const Home = () => {
     // Cleanup camera stream on component unmount
     return () => {
       if (cameraStream) {
-        cameraStream.getTracks().forEach(track => track.stop());
+        cameraStream.getTracks().forEach((track) => track.stop());
       }
     };
   }, [location, setSelectedFile, setPreview, cameraStream]);
@@ -879,137 +880,177 @@ const Home = () => {
     }
   };
 
-  // const openCamera = async () => {
-  //   if (selectedFile.length >= 4) {
-  //     setFileError("Cannot add more images. Maximum of 4 images reached.");
-  //     return;
-  //   }
-  //   try {
-  //     const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
-  //     setCameraStream(stream);
-  //     setShowCamera(true);
-  //     if (videoRef.current) {
-  //       videoRef.current.srcObject = stream;
-  //       videoRef.current.play();
-  //     }
-  //   } catch (err) {
-  //     console.error("Error accessing camera:", err);
-  //     setFileError("Could not access camera. Please select images manually.");
-  //   }
-  // };
   const openCamera = async () => {
-  if (selectedFile.length >= 4) {
-    setFileError("Cannot add more images. Maximum of 4 images reached.");
-    return;
-  }
-  try {
-    // Try accessing the camera with environment facing mode first
-    let stream;
+    if (selectedFile.length >= 4) {
+      setFileError("Cannot add more images. Maximum of 4 images reached.");
+      return;
+    }
+
+    if (!window.isSecureContext) {
+      setFileError("Camera access requires a secure context (HTTPS). Please access the site via HTTPS.");
+      return;
+    }
+
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      setFileError("Camera is not supported on this device. Please upload images manually.");
+      return;
+    }
+
     try {
-      stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
-    } catch (envError) {
-      // Fallback to any available camera if environment mode fails
-      console.warn("Environment camera not available, trying default camera:", envError);
-      stream = await navigator.mediaDevices.getUserMedia({ video: true });
-    }
+      let stream;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            facingMode: "environment",
+            width: { ideal: 1280 },
+            height: { ideal: 720 },
+          },
+        });
+      } catch (envError) {
+        console.warn("Environment camera not available, trying default camera:", envError);
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            width: { ideal: 1280 },
+            height: { ideal: 720 },
+          },
+        });
+      }
 
-    setCameraStream(stream);
-    setShowCamera(true);
-    if (videoRef.current) {
+      // Log stream details for debugging
+      stream.getVideoTracks().forEach((track) => {
+        console.log("Camera track:", {
+          label: track.label,
+          enabled: track.enabled,
+          state: track.readyState,
+        });
+      });
+
+      if (!videoRef.current) {
+        console.error("Video element is not available.");
+        setFileError("Camera initialization failed. Please try again.");
+        stream.getTracks().forEach((track) => track.stop());
+        return;
+      }
+
+      setCameraStream(stream);
+      setShowCamera(true);
       videoRef.current.srcObject = stream;
-      videoRef.current.play();
+      videoRef.current.onloadedmetadata = () => {
+        videoRef.current.play().catch((playError) => {
+          console.error("Error playing video:", playError);
+          setFileError("Failed to play camera stream. Please try again.");
+          stream.getTracks().forEach((track) => track.stop());
+          setShowCamera(false);
+          setCameraStream(null);
+        });
+      };
+    } catch (err) {
+      console.error("Error accessing camera:", err.name, err.message);
+      let errorMessage = "Could not access camera. Please select images manually.";
+      if (err.name === "NotFoundError" || err.name === "DevicesNotFoundError") {
+        errorMessage = "No camera found on this device. Please upload images manually.";
+      } else if (err.name === "NotAllowedError" || err.name === "PermissionDeniedError") {
+        errorMessage = "Camera access denied. Please grant camera permissions and try again.";
+      } else if (err.name === "NotReadableError" || err.name === "TrackStartError") {
+        errorMessage = "Camera is in use by another application. Please close it and try again.";
+      } else if (err.name === "SecurityError") {
+        errorMessage = "Camera access requires a secure context (HTTPS). Please contact support.";
+      }
+      setFileError(errorMessage);
     }
-  } catch (err) {
-    console.error("Error accessing camera:", err.name, err.message);
-    let errorMessage = "Could not access camera. Please select images manually.";
-    
-    if (err.name === "NotFoundError" || err.name === "DevicesNotFoundError") {
-      errorMessage = "No camera found on this device. Please upload images manually.";
-    } else if (err.name === "NotAllowedError" || err.name === "PermissionDeniedError") {
-      errorMessage = "Camera access denied. Please grant camera permissions and try again.";
-    } else if (err.name === "NotReadableError" || err.name === "TrackStartError") {
-      errorMessage = "Camera is in use by another application. Please close it and try again.";
-    } else if (err.name === "SecurityError") {
-      errorMessage = "Camera access requires a secure context (HTTPS). Please contact support.";
-    }
-
-    setFileError(errorMessage);
-  }
-};
+  };
 
   const captureImage = () => {
-    if (!videoRef.current || !canvasRef.current) return;
+    if (!videoRef.current || !canvasRef.current) {
+      setFileError("Camera is not ready. Please try again.");
+      return;
+    }
+
+    const video = videoRef.current;
+    if (video.videoWidth === 0 || video.videoHeight === 0) {
+      setFileError("Camera stream is not rendering. Please try again.");
+      return;
+    }
 
     const canvas = canvasRef.current;
-    const video = videoRef.current;
     canvas.width = video.videoWidth;
     canvas.height = video.videoHeight;
     canvas.getContext("2d").drawImage(video, 0, 0, canvas.width, canvas.height);
 
-    canvas.toBlob((blob) => {
-      const file = new File([blob], `camera-capture-${Date.now()}.jpg`, { type: "image/jpeg" });
-      const currentFiles = selectedFile || [];
-      const currentPreviews = preview || [];
-      const availableSlots = 4 - currentFiles.length;
+    canvas.toBlob(
+      (blob) => {
+        if (!blob) {
+          setFileError("Failed to capture image. Please try again.");
+          return;
+        }
+        const file = new File([blob], `camera-capture-${Date.now()}.jpg`, {
+          type: "image/jpeg",
+        });
+        const currentFiles = selectedFile || [];
+        const currentPreviews = preview || [];
+        const availableSlots = 4 - currentFiles.length;
 
-      if (availableSlots === 0) {
-        setFileError("Cannot add more images. Maximum of 4 images reached.");
-        return;
-      }
+        if (availableSlots === 0) {
+          setFileError("Cannot add more images. Maximum of 4 images reached.");
+          return;
+        }
 
-      let allFiles = [...currentFiles];
-      if (lastRemovedIndex !== null && lastRemovedIndex < 4) {
-        allFiles.splice(lastRemovedIndex, 0, file);
-        allFiles = allFiles.slice(0, 4);
-        const newIndex = lastRemovedIndex + 1;
-        setLastRemovedIndex(allFiles.length < 4 && newIndex < 4 ? newIndex : null);
-      } else {
-        allFiles = [...currentFiles, file].slice(0, 4);
-        setLastRemovedIndex(allFiles.length < 4 ? allFiles.length : null);
-      }
+        let allFiles = [...currentFiles];
+        if (lastRemovedIndex !== null && lastRemovedIndex < 4) {
+          allFiles.splice(lastRemovedIndex, 0, file);
+          allFiles = allFiles.slice(0, 4);
+          const newIndex = lastRemovedIndex + 1;
+          setLastRemovedIndex(allFiles.length < 4 && newIndex < 4 ? newIndex : null);
+        } else {
+          allFiles = [...currentFiles, file].slice(0, 4);
+          setLastRemovedIndex(allFiles.length < 4 ? allFiles.length : null);
+        }
 
-      currentPreviews.forEach((img) => URL.revokeObjectURL(img.url));
+        currentPreviews.forEach((img) => URL.revokeObjectURL(img.url));
 
-      const generatedPreview = allFiles.map((f, index) => ({
-        url: URL.createObjectURL(f),
-        number: `Image ${index + 1}`,
-        id: `${f.name}-${Date.now()}-${index}`,
-      }));
+        const generatedPreview = allFiles.map((f, index) => ({
+          url: URL.createObjectURL(f),
+          number: `Image ${index + 1}`,
+          id: `${f.name}-${Date.now()}-${index}`,
+        }));
 
-      setSelectedFile(allFiles);
-      setPreview(generatedPreview);
-      setResult(null);
+        setSelectedFile(allFiles);
+        setPreview(generatedPreview);
+        setResult(null);
 
-      sessionStorage.setItem(
-        "savedFiles",
-        JSON.stringify(
-          allFiles.map((f) => ({
-            name: f.name,
-            type: f.type,
-            size: f.size,
-          }))
-        )
-      );
-      sessionStorage.setItem("savedPreview", JSON.stringify(generatedPreview));
+        sessionStorage.setItem(
+          "savedFiles",
+          JSON.stringify(
+            allFiles.map((f) => ({
+              name: f.name,
+              type: f.type,
+              size: f.size,
+            }))
+          )
+        );
+        sessionStorage.setItem("savedPreview", JSON.stringify(generatedPreview));
 
-      setFileError(
-        allFiles.length === 4
-          ? null
-          : `Please select ${4 - allFiles.length} more image(s) to reach 4.`
-      );
+        setFileError(
+          allFiles.length === 4
+            ? null
+            : `Please select ${4 - allFiles.length} more image(s) to reach 4.`
+        );
 
-      // Stop camera stream
-      if (cameraStream) {
-        cameraStream.getTracks().forEach(track => track.stop());
-      }
-      setShowCamera(false);
-      setCameraStream(null);
-    }, "image/jpeg");
+        // Stop camera stream
+        if (cameraStream) {
+          cameraStream.getTracks().forEach((track) => track.stop());
+        }
+        setShowCamera(false);
+        setCameraStream(null);
+      },
+      "image/jpeg",
+      0.9 // Adjust JPEG quality
+    );
   };
 
   const closeCamera = () => {
     if (cameraStream) {
-      cameraStream.getTracks().forEach(track => track.stop());
+      cameraStream.getTracks().forEach((track) => track.stop());
     }
     setShowCamera(false);
     setCameraStream(null);
@@ -1123,11 +1164,11 @@ const Home = () => {
     const disease = detectedDiseases[0];
     finalPrediction = `🔴 ${disease.charAt(0).toUpperCase() + disease.slice(1)} detected`;
   } else if (detectedDiseases.length > 1) {
-    finalPrediction = " Conclusion";
+    finalPrediction = "🔴 Conclusion";
   }
 
   const cleanPrediction = (prediction) => {
-    return prediction.replace(/ – severity: \d+(\.\d+)?%/, '').trim();
+    return prediction.replace(/ – severity: \d+(\.\d+)?%/, "").trim();
   };
 
   console.log("Detected diseases:", detectedDiseases);
@@ -1172,7 +1213,12 @@ const Home = () => {
               Capture Image
             </h2>
             <div className="relative w-full h-64 bg-black rounded-lg overflow-hidden">
-              <video ref={videoRef} className="w-full h-full object-cover" autoPlay />
+              <video
+                ref={videoRef}
+                className="w-full h-full object-cover"
+                autoPlay
+                playsInline // Added for iOS compatibility
+              />
               <canvas ref={canvasRef} className="hidden" />
             </div>
             <div className="flex justify-center gap-4 mt-4">
@@ -1229,16 +1275,18 @@ const Home = () => {
               disabled={loading}
             />
           </div>
-          <div
-            onClick={openCamera}
-            onKeyDown={(e) => e.key === "Enter" && openCamera()}
-            role="button"
-            tabIndex={0}
-            aria-label="Click or press Enter to open camera"
-            className="w-48 h-48 border-4 border-dashed border-yellow-400 bg-white shadow-lg hover:bg-yellow-50 transition-all duration-300 flex items-center justify-center cursor-pointer"
-          >
-            <Video className="w-10 h-10 text-yellow-600" />
-          </div>
+          {isCameraAvailable && (
+            <div
+              onClick={openCamera}
+              onKeyDown={(e) => e.key === "Enter" && openCamera()}
+              role="button"
+              tabIndex={0}
+              aria-label="Click or press Enter to open camera"
+              className="w-48 h-48 border-4 border-dashed border-yellow-400 bg-white shadow-lg hover:bg-yellow-50 transition-all duration-300 flex items-center justify-center cursor-pointer"
+            >
+              <Video className="w-10 h-10 text-yellow-600" />
+            </div>
+          )}
         </div>
 
         {fileError && (
