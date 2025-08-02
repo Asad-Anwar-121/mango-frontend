@@ -639,6 +639,7 @@ const Home = () => {
   const [showPopup, setShowPopup] = useState(false);
   const [showCamera, setShowCamera] = useState(false);
   const [cameraStream, setCameraStream] = useState(null);
+  const [renderKey, setRenderKey] = useState(0); // Added for mobile re-render
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
   const fileInputRef = useRef(null);
@@ -647,16 +648,17 @@ const Home = () => {
   const isCameraAvailable = navigator.mediaDevices && navigator.mediaDevices.getUserMedia;
 
   useEffect(() => {
+    console.log("Home.jsx useEffect triggered", {
+      pathname: location.pathname,
+      state: location.state,
+      selectedFile: selectedFile?.map((f) => f.name),
+      preview: preview?.map((p) => p.number),
+    });
+
     const hasSeenPopup = localStorage.getItem("hasSeenGuidelinesPopup");
     if (!hasSeenPopup) {
       setShowPopup(true);
     }
-
-    console.log("Home.jsx useEffect triggered", {
-      pathname: location.pathname,
-      state: location.state,
-      locationKey: location.key,
-    });
 
     const state = location.state || {};
     const savedFiles = state.savedFiles || [];
@@ -667,7 +669,6 @@ const Home = () => {
         savedFiles: savedFiles.map((f) => ({ name: f.name, type: f.type, size: f.size })),
         savedPreview,
       });
-
       setSelectedFile(savedFiles);
       setPreview(savedPreview);
       setFileError(
@@ -675,67 +676,13 @@ const Home = () => {
           ? null
           : `Restored ${savedFiles.length} images. Please select ${4 - savedFiles.length} more image(s) to reach 4.`
       );
-
-      sessionStorage.setItem(
-        "savedFiles",
-        JSON.stringify(savedFiles.map((f) => ({
-          name: f.name,
-          type: f.type,
-          size: f.size,
-        })))
-      );
-      sessionStorage.setItem("savedPreview", JSON.stringify(savedPreview));
     } else {
-      console.log("No valid location.state, checking sessionStorage");
-      const previewFromStorage = sessionStorage.getItem("savedPreview");
-      const filesFromStorage = sessionStorage.getItem("savedFiles");
-
-      if (previewFromStorage && filesFromStorage) {
-        try {
-          const parsedPreview = JSON.parse(previewFromStorage);
-          const parsedFiles = JSON.parse(filesFromStorage);
-
-          if (
-            Array.isArray(parsedPreview) &&
-            parsedPreview.every((img) => img.url && img.number && img.id) &&
-            Array.isArray(parsedFiles)
-          ) {
-            console.log("Restoring from sessionStorage:", {
-              parsedPreview,
-              parsedFiles,
-            });
-            setPreview(parsedPreview);
-            setSelectedFile([]);
-            setFileError(
-              parsedPreview.length === 4
-                ? null
-                : `Restored ${parsedPreview.length} images. Please select ${4 - parsedPreview.length} more image(s) to reach 4.`
-            );
-          } else {
-            console.error("Invalid sessionStorage format:", {
-              parsedPreview,
-              parsedFiles,
-            });
-            sessionStorage.removeItem("savedFiles");
-            sessionStorage.removeItem("savedPreview");
-            setSelectedFile([]);
-            setPreview([]);
-            setFileError("Please select exactly 4 images to analyze.");
-          }
-        } catch (err) {
-          console.error("Error parsing sessionStorage:", err);
-          sessionStorage.removeItem("savedFiles");
-          sessionStorage.removeItem("savedPreview");
-          setSelectedFile([]);
-          setPreview([]);
-          setFileError("Please select exactly 4 images to analyze.");
-        }
-      } else {
-        console.log("No saved data, initializing empty state");
-        setSelectedFile([]);
-        setPreview([]);
-        setFileError("Please select exactly 4 images to analyze.");
-      }
+      console.log("No valid location.state, initializing empty state");
+      setSelectedFile([]);
+      setPreview([]);
+      setFileError("Please select exactly 4 images to analyze.");
+      sessionStorage.removeItem("savedFiles");
+      sessionStorage.removeItem("savedPreview");
     }
 
     return () => {
@@ -761,13 +708,17 @@ const Home = () => {
     }
   }, [showCamera, cameraStream]);
 
+  useEffect(() => {
+    console.log("Current state after render:", {
+      selectedFile: selectedFile?.map((f) => f.name),
+      preview: preview?.map((p) => p.number),
+    });
+  }, [selectedFile, preview]);
+
   const handleFileChange = (e) => {
     try {
       const newFiles = Array.from(e.target.files);
-      console.log(
-        "Selected files:",
-        newFiles.map((f) => ({ name: f.name, type: f.type, size: f.size }))
-      );
+      console.log("handleFileChange input:", newFiles.map((f) => f.name));
 
       const validTypes = ["image/jpeg", "image/png"];
       const maxSize = 10 * 1024 * 1024; // 10MB
@@ -799,7 +750,7 @@ const Home = () => {
           const generatedPreview = allFiles.map((file, index) => ({
             url: URL.createObjectURL(file),
             number: `Image ${index + 1}`,
-            id: `${file.name}-${Date.now()}-${index}-${Math.random().toString(36).slice(2)}`,
+            id: `${file.name}-${Date.now()}-${index}-${crypto.randomUUID?.() || Math.random().toString(36).slice(2)}`,
           }));
           console.log("handleFileChange new preview:", generatedPreview.map((p) => p.number));
 
@@ -820,6 +771,7 @@ const Home = () => {
           );
           setResult(null);
           setLastRemovedIndex(allFiles.length < 4 ? allFiles.length : null);
+          setRenderKey((prev) => prev + 1); // Force re-render
 
           return generatedPreview;
         });
@@ -869,6 +821,7 @@ const Home = () => {
           );
           setResult(null);
           setLastRemovedIndex(indexToRemove);
+          setRenderKey((prev) => prev + 1); // Force re-render
 
           console.log("After remove:", {
             newFiles: newFiles.map((f) => f.name),
@@ -959,12 +912,14 @@ const Home = () => {
   const captureImage = () => {
     if (!videoRef.current || !canvasRef.current) {
       setFileError("Camera is not ready. Please try again.");
+      console.log("captureImage: Video or canvas ref missing");
       return;
     }
 
     const video = videoRef.current;
     if (video.videoWidth === 0 || video.videoHeight === 0) {
       setFileError("Camera stream is not rendering. Please try again.");
+      console.log("captureImage: Invalid video dimensions");
       return;
     }
 
@@ -973,59 +928,71 @@ const Home = () => {
     canvas.height = video.videoHeight;
     canvas.getContext("2d").drawImage(video, 0, 0, canvas.width, canvas.height);
 
+    console.log("captureImage: Capturing image from canvas");
+
     canvas.toBlob(
       (blob) => {
         if (!blob) {
           setFileError("Failed to capture image. Please try again.");
+          console.log("captureImage: Blob creation failed");
           return;
         }
+
         const file = new File([blob], `camera-capture-${Date.now()}.jpg`, {
           type: "image/jpeg",
         });
+
+        console.log("captureImage: Created file", { name: file.name, size: file.size });
 
         setSelectedFile((prev) => {
           const currentFiles = prev || [];
           const currentPreviews = preview || [];
           const availableSlots = 4 - currentFiles.length;
 
-          if (availableSlots === 0) {
-            setFileError("Cannot add more images. Maximum of 4 images reached.");
-            return prev;
-          }
-
-          console.log("Before capture:", {
+          console.log("captureImage Before:", {
             currentFiles: currentFiles.map((f) => f.name),
             currentPreviews: currentPreviews.map((p) => p.number),
             availableSlots,
           });
 
+          if (availableSlots === 0) {
+            setFileError("Cannot add more images. Maximum of 4 images reached.");
+            console.log("captureImage: Max images reached");
+            return prev;
+          }
+
+          // Clear sessionStorage to prevent stale data
+          sessionStorage.removeItem("savedFiles");
+          sessionStorage.removeItem("savedPreview");
+
           const allFiles = [...currentFiles, file].slice(0, 4);
+          currentPreviews.forEach((img) => URL.revokeObjectURL(img.url));
+          const generatedPreview = allFiles.map((f, index) => ({
+            url: URL.createObjectURL(f),
+            number: `Image ${index + 1}`,
+            id: `${f.name}-${Date.now()}-${index}-${crypto.randomUUID?.() || Math.random().toString(36).slice(2)}`,
+          }));
 
-          setPreview((prevPreview) => {
-            prevPreview?.forEach((img) => URL.revokeObjectURL(img.url));
-            const generatedPreview = allFiles.map((f, index) => ({
-              url: URL.createObjectURL(f),
-              number: `Image ${index + 1}`,
-              id: `${f.name}-${Date.now()}-${index}-${Math.random().toString(36).slice(2)}`,
-            }));
+          console.log("captureImage After:", {
+            allFiles: allFiles.map((f) => f.name),
+            generatedPreview: generatedPreview.map((p) => p.number),
+          });
 
-            console.log("After capture:", {
-              allFiles: allFiles.map((f) => f.name),
-              generatedPreview: generatedPreview.map((p) => p.number),
-            });
+          // Update sessionStorage
+          sessionStorage.setItem(
+            "savedFiles",
+            JSON.stringify(allFiles.map((f) => ({
+              name: f.name,
+              type: f.type,
+              size: f.size,
+            })))
+          );
+          sessionStorage.setItem("savedPreview", JSON.stringify(generatedPreview));
 
-            sessionStorage.setItem(
-              "savedFiles",
-              JSON.stringify(
-                allFiles.map((f) => ({
-                  name: f.name,
-                  type: f.type,
-                  size: f.size,
-                }))
-              )
-            );
-            sessionStorage.setItem("savedPreview", JSON.stringify(generatedPreview));
-
+          // Update state with delay for mobile browsers
+          setTimeout(() => {
+            setPreview(generatedPreview);
+            setSelectedFile(allFiles);
             setFileError(
               allFiles.length === 4
                 ? null
@@ -1033,9 +1000,8 @@ const Home = () => {
             );
             setResult(null);
             setLastRemovedIndex(allFiles.length < 4 ? allFiles.length : null);
-
-            return generatedPreview;
-          });
+            setRenderKey((prev) => prev + 1); // Force re-render
+          }, 0);
 
           return allFiles;
         });
@@ -1119,6 +1085,7 @@ const Home = () => {
     sessionStorage.removeItem("savedFiles");
     sessionStorage.removeItem("savedPreview");
     setLastRemovedIndex(null);
+    setRenderKey((prev) => prev + 1);
     console.log("Cleared state on refresh");
   };
 
@@ -1298,7 +1265,7 @@ const Home = () => {
         )}
 
         {preview && preview.length > 0 && (
-          <div className="flex flex-wrap gap-4 justify-center mt-4">
+          <div key={renderKey} className="flex flex-wrap gap-4 justify-center mt-4">
             {preview.map((img, index) => (
               <div
                 key={img.id}
