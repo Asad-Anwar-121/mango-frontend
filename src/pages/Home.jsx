@@ -656,15 +656,13 @@ const Home = () => {
       pathname: location.pathname,
       state: location.state,
       locationKey: location.key,
-      sessionStoragePreview: sessionStorage.getItem("savedPreview"),
-      sessionStorageFiles: sessionStorage.getItem("savedFiles"),
     });
 
     const state = location.state || {};
-    const savedFiles = state.savedFiles || null;
-    const savedPreview = state.savedPreview || null;
+    const savedFiles = state.savedFiles || [];
+    const savedPreview = state.savedPreview || [];
 
-    if (savedFiles && savedPreview && savedPreview.length > 0) {
+    if (savedFiles.length > 0 && savedPreview.length > 0) {
       console.log("Restoring from location.state:", {
         savedFiles: savedFiles.map((f) => ({ name: f.name, type: f.type, size: f.size })),
         savedPreview,
@@ -688,16 +686,9 @@ const Home = () => {
       );
       sessionStorage.setItem("savedPreview", JSON.stringify(savedPreview));
     } else {
-      console.log("location.state is empty or incomplete", {
-        savedFiles: savedFiles ? "present" : "null",
-        savedPreview: savedPreview ? "present" : "null",
-        rawState: state,
-      });
-
+      console.log("No valid location.state, checking sessionStorage");
       const previewFromStorage = sessionStorage.getItem("savedPreview");
       const filesFromStorage = sessionStorage.getItem("savedFiles");
-
-      console.log("Restored sessionStorage:", { previewFromStorage, filesFromStorage });
 
       if (previewFromStorage && filesFromStorage) {
         try {
@@ -713,30 +704,34 @@ const Home = () => {
               parsedPreview,
               parsedFiles,
             });
-
             setPreview(parsedPreview);
             setSelectedFile([]);
-            setFileError("");
-
-            sessionStorage.setItem("savedFiles", JSON.stringify(parsedFiles));
-            sessionStorage.setItem("savedPreview", JSON.stringify(parsedPreview));
+            setFileError(
+              parsedPreview.length === 4
+                ? null
+                : `Restored ${parsedPreview.length} images. Please select ${4 - parsedPreview.length} more image(s) to reach 4.`
+            );
           } else {
             console.error("Invalid sessionStorage format:", {
               parsedPreview,
               parsedFiles,
             });
-            throw new Error("Invalid sessionStorage data");
+            sessionStorage.removeItem("savedFiles");
+            sessionStorage.removeItem("savedPreview");
+            setSelectedFile([]);
+            setPreview([]);
+            setFileError("Please select exactly 4 images to analyze.");
           }
         } catch (err) {
           console.error("Error parsing sessionStorage:", err);
+          sessionStorage.removeItem("savedFiles");
+          sessionStorage.removeItem("savedPreview");
           setSelectedFile([]);
           setPreview([]);
           setFileError("Please select exactly 4 images to analyze.");
-          sessionStorage.removeItem("savedFiles");
-          sessionStorage.removeItem("savedPreview");
         }
       } else {
-        console.log("No saved data in sessionStorage or location.state, initializing empty state");
+        console.log("No saved data, initializing empty state");
         setSelectedFile([]);
         setPreview([]);
         setFileError("Please select exactly 4 images to analyze.");
@@ -786,48 +781,51 @@ const Home = () => {
         return;
       }
 
-      const currentFiles = selectedFile || [];
-      const currentPreviews = preview || [];
-      const availableSlots = 4 - currentFiles.length;
-      const filesToAdd = newFiles.slice(0, availableSlots);
+      setSelectedFile((prev) => {
+        const currentFiles = prev || [];
+        const availableSlots = 4 - currentFiles.length;
+        const filesToAdd = newFiles.slice(0, availableSlots);
 
-      if (filesToAdd.length === 0 && currentFiles.length < 4) {
-        setFileError("No new images added. Please select more images to reach 4.");
-        return;
-      }
+        if (filesToAdd.length === 0 && currentFiles.length < 4) {
+          setFileError("No new images added. Please select more images to reach 4.");
+          return prev;
+        }
 
-      const allFiles = [...currentFiles, ...filesToAdd].slice(0, 4);
-      setLastRemovedIndex(allFiles.length < 4 ? allFiles.length : null);
+        const allFiles = [...currentFiles, ...filesToAdd].slice(0, 4);
+        console.log("handleFileChange new files:", allFiles.map((f) => f.name));
 
-      currentPreviews.forEach((img) => URL.revokeObjectURL(img.url));
+        setPreview((prevPreview) => {
+          prevPreview?.forEach((img) => URL.revokeObjectURL(img.url));
+          const generatedPreview = allFiles.map((file, index) => ({
+            url: URL.createObjectURL(file),
+            number: `Image ${index + 1}`,
+            id: `${file.name}-${Date.now()}-${index}-${Math.random().toString(36).slice(2)}`,
+          }));
+          console.log("handleFileChange new preview:", generatedPreview.map((p) => p.number));
 
-      const generatedPreview = allFiles.map((file, index) => ({
-        url: URL.createObjectURL(file),
-        number: `Image ${index + 1}`,
-        id: `${file.name}-${Date.now()}-${index}`,
-      }));
+          sessionStorage.setItem(
+            "savedFiles",
+            JSON.stringify(allFiles.map((f) => ({
+              name: f.name,
+              type: f.type,
+              size: f.size,
+            })))
+          );
+          sessionStorage.setItem("savedPreview", JSON.stringify(generatedPreview));
 
-      setSelectedFile(allFiles);
-      setPreview(generatedPreview);
-      setResult(null);
+          setFileError(
+            allFiles.length === 4
+              ? null
+              : `Please select ${4 - allFiles.length} more image(s) to reach 4.`
+          );
+          setResult(null);
+          setLastRemovedIndex(allFiles.length < 4 ? allFiles.length : null);
 
-      sessionStorage.setItem(
-        "savedFiles",
-        JSON.stringify(
-          allFiles.map((f) => ({
-            name: f.name,
-            type: f.type,
-            size: f.size,
-          }))
-        )
-      );
-      sessionStorage.setItem("savedPreview", JSON.stringify(generatedPreview));
+          return generatedPreview;
+        });
 
-      setFileError(
-        allFiles.length === 4
-          ? null
-          : `Please select ${4 - allFiles.length} more image(s) to reach 4.`
-      );
+        return allFiles;
+      });
     } catch (err) {
       console.error("Error in handleFileChange:", err);
       setFileError("Error processing images. Please try again.");
@@ -839,41 +837,49 @@ const Home = () => {
     setIsRemoving(true);
 
     try {
-      const newFiles = selectedFile.filter((_, index) => index !== indexToRemove);
-      const newPreviews = preview.filter((_, index) => index !== indexToRemove);
+      setSelectedFile((prev) => {
+        const newFiles = prev.filter((_, index) => index !== indexToRemove);
+        setPreview((prevPreview) => {
+          const newPreviews = prevPreview.filter((_, index) => index !== indexToRemove);
+          if (prevPreview[indexToRemove]) {
+            URL.revokeObjectURL(prevPreview[indexToRemove].url);
+          }
 
-      if (preview[indexToRemove]) {
-        URL.revokeObjectURL(preview[indexToRemove].url);
-      }
+          if (newFiles.length > 0) {
+            sessionStorage.setItem(
+              "savedFiles",
+              JSON.stringify(
+                newFiles.map((f) => ({
+                  name: f.name,
+                  type: f.type,
+                  size: f.size,
+                }))
+              )
+            );
+            sessionStorage.setItem("savedPreview", JSON.stringify(newPreviews));
+          } else {
+            sessionStorage.removeItem("savedFiles");
+            sessionStorage.removeItem("savedPreview");
+          }
 
-      setSelectedFile(newFiles);
-      setPreview(newPreviews);
-      setResult(null);
-      setLastRemovedIndex(indexToRemove);
+          setFileError(
+            newFiles.length === 0
+              ? "Please select exactly 4 images to analyze."
+              : `Please select ${4 - newFiles.length} more image(s) to reach 4.`
+          );
+          setResult(null);
+          setLastRemovedIndex(indexToRemove);
 
-      if (newFiles.length > 0) {
-        sessionStorage.setItem(
-          "savedFiles",
-          JSON.stringify(
-            newFiles.map((f) => ({
-              name: f.name,
-              type: f.type,
-              size: f.size,
-            }))
-          )
-        );
-        sessionStorage.setItem("savedPreview", JSON.stringify(newPreviews));
-      } else {
-        sessionStorage.removeItem("savedFiles");
-        sessionStorage.removeItem("savedPreview");
-        setLastRemovedIndex(null);
-      }
+          console.log("After remove:", {
+            newFiles: newFiles.map((f) => f.name),
+            newPreviews: newPreviews.map((p) => p.number),
+          });
 
-      setFileError(
-        newFiles.length === 0
-          ? "Please select exactly 4 images to analyze."
-          : `Please select ${4 - newFiles.length} more image(s) to reach 4.`
-      );
+          return newPreviews;
+        });
+
+        return newFiles;
+      });
     } catch (err) {
       console.error("Error in handleRemoveImage:", err);
       setFileError("Error removing image. Please try again.");
@@ -976,56 +982,63 @@ const Home = () => {
         const file = new File([blob], `camera-capture-${Date.now()}.jpg`, {
           type: "image/jpeg",
         });
-        const currentFiles = selectedFile || [];
-        const currentPreviews = preview || [];
-        const availableSlots = 4 - currentFiles.length;
 
-        if (availableSlots === 0) {
-          setFileError("Cannot add more images. Maximum of 4 images reached.");
-          return;
-        }
+        setSelectedFile((prev) => {
+          const currentFiles = prev || [];
+          const currentPreviews = preview || [];
+          const availableSlots = 4 - currentFiles.length;
 
-        console.log("Before capture:", {
-          currentFiles: currentFiles.map((f) => f.name),
-          currentPreviews: currentPreviews.map((p) => p.number),
-          availableSlots,
+          if (availableSlots === 0) {
+            setFileError("Cannot add more images. Maximum of 4 images reached.");
+            return prev;
+          }
+
+          console.log("Before capture:", {
+            currentFiles: currentFiles.map((f) => f.name),
+            currentPreviews: currentPreviews.map((p) => p.number),
+            availableSlots,
+          });
+
+          const allFiles = [...currentFiles, file].slice(0, 4);
+
+          setPreview((prevPreview) => {
+            prevPreview?.forEach((img) => URL.revokeObjectURL(img.url));
+            const generatedPreview = allFiles.map((f, index) => ({
+              url: URL.createObjectURL(f),
+              number: `Image ${index + 1}`,
+              id: `${f.name}-${Date.now()}-${index}-${Math.random().toString(36).slice(2)}`,
+            }));
+
+            console.log("After capture:", {
+              allFiles: allFiles.map((f) => f.name),
+              generatedPreview: generatedPreview.map((p) => p.number),
+            });
+
+            sessionStorage.setItem(
+              "savedFiles",
+              JSON.stringify(
+                allFiles.map((f) => ({
+                  name: f.name,
+                  type: f.type,
+                  size: f.size,
+                }))
+              )
+            );
+            sessionStorage.setItem("savedPreview", JSON.stringify(generatedPreview));
+
+            setFileError(
+              allFiles.length === 4
+                ? null
+                : `Please select ${4 - allFiles.length} more image(s) to reach 4.`
+            );
+            setResult(null);
+            setLastRemovedIndex(allFiles.length < 4 ? allFiles.length : null);
+
+            return generatedPreview;
+          });
+
+          return allFiles;
         });
-
-        const allFiles = [...currentFiles, file].slice(0, 4);
-        currentPreviews.forEach((img) => URL.revokeObjectURL(img.url));
-        const generatedPreview = allFiles.map((f, index) => ({
-          url: URL.createObjectURL(f),
-          number: `Image ${index + 1}`,
-          id: `${f.name}-${Date.now()}-${index}`,
-        }));
-
-        console.log("After capture:", {
-          allFiles: allFiles.map((f) => f.name),
-          generatedPreview: generatedPreview.map((p) => p.number),
-        });
-
-        setSelectedFile(allFiles);
-        setPreview(generatedPreview);
-        setResult(null);
-        setLastRemovedIndex(allFiles.length < 4 ? allFiles.length : null);
-
-        sessionStorage.setItem(
-          "savedFiles",
-          JSON.stringify(
-            allFiles.map((f) => ({
-              name: f.name,
-              type: f.type,
-              size: f.size,
-            }))
-          )
-        );
-        sessionStorage.setItem("savedPreview", JSON.stringify(generatedPreview));
-
-        setFileError(
-          allFiles.length === 4
-            ? null
-            : `Please select ${4 - allFiles.length} more image(s) to reach 4.`
-        );
 
         if (cameraStream) {
           cameraStream.getTracks().forEach((track) => track.stop());
