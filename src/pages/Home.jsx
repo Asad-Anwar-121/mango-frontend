@@ -750,6 +750,23 @@ const Home = () => {
     };
   }, [location, setSelectedFile, setPreview, cameraStream]);
 
+  // New useEffect to handle stream assignment after showCamera is true
+  useEffect(() => {
+    if (showCamera && cameraStream && videoRef.current) {
+      console.log("Assigning stream to video element");
+      videoRef.current.srcObject = cameraStream;
+      videoRef.current.onloadedmetadata = () => {
+        videoRef.current.play().catch((playError) => {
+          console.error("Error playing video:", playError);
+          setFileError("Failed to play camera stream. Please try again.");
+          cameraStream.getTracks().forEach((track) => track.stop());
+          setShowCamera(false);
+          setCameraStream(null);
+        });
+      };
+    }
+  }, [showCamera, cameraStream]);
+
   const handleFileChange = (e) => {
     try {
       const newFiles = Array.from(e.target.files);
@@ -925,25 +942,8 @@ const Home = () => {
         });
       });
 
-      if (!videoRef.current) {
-        console.error("Video element is not available.");
-        setFileError("Camera initialization failed. Please try again.");
-        stream.getTracks().forEach((track) => track.stop());
-        return;
-      }
-
       setCameraStream(stream);
-      setShowCamera(true);
-      videoRef.current.srcObject = stream;
-      videoRef.current.onloadedmetadata = () => {
-        videoRef.current.play().catch((playError) => {
-          console.error("Error playing video:", playError);
-          setFileError("Failed to play camera stream. Please try again.");
-          stream.getTracks().forEach((track) => track.stop());
-          setShowCamera(false);
-          setCameraStream(null);
-        });
-      };
+      setShowCamera(true); // This triggers the useEffect to assign the stream
     } catch (err) {
       console.error("Error accessing camera:", err.name, err.message);
       let errorMessage = "Could not access camera. Please select images manually.";
@@ -1044,7 +1044,7 @@ const Home = () => {
         setCameraStream(null);
       },
       "image/jpeg",
-      0.9 // Adjust JPEG quality
+      0.9
     );
   };
 
@@ -1217,7 +1217,7 @@ const Home = () => {
                 ref={videoRef}
                 className="w-full h-full object-cover"
                 autoPlay
-                playsInline // Added for iOS compatibility
+                playsInline
               />
               <canvas ref={canvasRef} className="hidden" />
             </div>
