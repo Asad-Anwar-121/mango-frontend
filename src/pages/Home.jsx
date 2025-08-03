@@ -27,7 +27,7 @@ const Home = () => {
   const fileInputRef = useRef(null);
   const location = useLocation();
   const navigate = useNavigate();
-  const isCameraAvailable = navigator.mediaDevices && navigator.mediaDevices.getUserMedia;
+  const isCameraAvailable = navigator.mediaDevices && navigator.mediaDevices.getUserMedia && navigator.mediaDevices.enumerateDevices;
 
   // Restore state from location.state on mount
   useEffect(() => {
@@ -46,25 +46,26 @@ const Home = () => {
       setPreview(savedPreview);
       setFileError(savedFiles.length === MAX_FILES ? null : `Please select ${MAX_FILES - savedFiles.length} more image(s).`);
     }
-
-    // Cleanup only camera stream on unmount
-    return () => {
-      if (cameraStream) {
-        cameraStream.getTracks().forEach((track) => track.stop());
-      }
-    };
-  }, [cameraStream, location.state]);
+  }, [location.state]);
 
   // Handle camera stream assignment
   useEffect(() => {
     if (showCamera && cameraStream && videoRef.current) {
+      console.log("Assigning stream to video element", { streamActive: cameraStream.active });
       videoRef.current.srcObject = cameraStream;
       videoRef.current.play().catch((err) => {
-        console.error("Error playing video:", err);
-        setFileError("Failed to access camera. Please try again or upload images manually.");
+        console.error("Error playing video:", err.name, err.message, err.stack);
+        setFileError("Failed to start camera feed. Please try again or upload images manually.");
         stopCamera();
       });
     }
+    return () => {
+      if (cameraStream) {
+        console.log("Cleaning up camera stream");
+        cameraStream.getTracks().forEach((track) => track.stop());
+        setCameraStream(null);
+      }
+    };
   }, [showCamera, cameraStream]);
 
   // Helper function to update files and previews
@@ -147,10 +148,12 @@ const Home = () => {
 
   const stopCamera = () => {
     if (cameraStream) {
+      console.log("Stopping camera stream");
       cameraStream.getTracks().forEach((track) => track.stop());
     }
     setShowCamera(false);
     setCameraStream(null);
+    setFileError(null);
   };
 
   const openCamera = async () => {
@@ -169,26 +172,45 @@ const Home = () => {
       return;
     }
 
+    // Check for available video devices
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const videoDevices = devices.filter((device) => device.kind === "videoinput");
+      if (videoDevices.length === 0) {
+        setFileError("No camera found on this device. Please upload images manually.");
+        return;
+      }
+    } catch (err) {
+      console.error("Error enumerating devices:", err);
+      setFileError("Unable to detect cameras. Please upload images manually.");
+      return;
+    }
+
     setFileError(null);
     setLoading(true);
 
     try {
-      let stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          facingMode: "environment",
-          width: { min: 640, max: 1920 },
-          height: { min: 360, max: 1080 },
-        },
-      }).catch(async (err) => {
-        console.warn("Rear camera failed, trying front camera:", err);
-        return navigator.mediaDevices.getUserMedia({
+      let stream;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
           video: {
-            facingMode: "user",
-            width: { min: 640, max: 1920 },
-            height: { min: 360, max: 1080 },
+            facingMode: "environment",
+            width: { ideal: 1280, min: 640, max: 1920 },
+            height: { ideal: 720, min: 360, max: 1080 },
           },
         });
-      });
+        console.log("Using rear camera");
+      } catch (rearErr) {
+        console.warn("Rear camera failed, trying front camera:", rearErr.name, rearErr.message);
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            facingMode: "user",
+            width: { ideal: 1280, min: 640, max: 1920 },
+            height: { ideal: 720, min: 360, max: 1080 },
+          },
+        });
+        console.log("Using front camera");
+      }
 
       stream.getVideoTracks().forEach((track) => {
         console.log("Camera track:", {
@@ -201,7 +223,7 @@ const Home = () => {
       setCameraStream(stream);
       setShowCamera(true);
     } catch (err) {
-      console.error("Error accessing camera:", err.name, err.message);
+      console.error("Error accessing camera:", err.name, err.message, err.stack);
       let errorMessage = "Unable to access camera. Please try again or upload images manually.";
       if (err.name === "NotAllowedError" || err.name === "PermissionDeniedError") {
         errorMessage = "Camera access denied. Please enable camera permissions in your browser settings and try again.";
@@ -211,8 +233,11 @@ const Home = () => {
         errorMessage = "Camera is in use by another app. Please close it and try again.";
       } else if (err.name === "SecurityError") {
         errorMessage = "Camera access requires HTTPS. Please use a secure connection.";
+      } else if (err.name === "OverconstrainedError") {
+        errorMessage = "Camera constraints not supported. Please try a different device or browser.";
       }
       setFileError(errorMessage);
+      setShowCamera(false);
     } finally {
       setLoading(false);
     }
@@ -288,7 +313,6 @@ const Home = () => {
   };
 
   const handleRefresh = () => {
-    // Revoke all preview URLs on refresh
     preview?.forEach((img) => URL.revokeObjectURL(img.url));
     setSelectedFile([]);
     setPreview([]);
@@ -377,6 +401,7 @@ const Home = () => {
               {loading ? (
                 <div className="absolute inset-0 flex items-center justify-center bg-black/50">
                   <Loader2 className="animate-spin w-8 h-8 text-yellow-600" />
+                  <span className="ml-2 text-white">Opening camera...</span>
                 </div>
               ) : (
                 <>
@@ -385,17 +410,21 @@ const Home = () => {
                     className="w-full h-full object-cover"
                     autoPlay
                     playsInline
+                    muted
                   />
                   <canvas ref={canvasRef} className="hidden" />
                 </>
               )}
             </div>
+            {fileError && showCamera && (
+              <div className="text-red-600 mt-4 text-center">{fileError}</div>
+            )}
             <div className="flex justify-center gap-4 mt-6">
               <button
                 onClick={captureImage}
                 className="px-6 py-2 bg-yellow-500 text-white rounded-lg hover:bg-yellow-600 transition duration-300 disabled:bg-gray-400"
                 aria-label="Capture image from camera"
-                disabled={loading}
+                disabled={loading || !cameraStream}
               >
                 Capture
               </button>
@@ -457,7 +486,7 @@ const Home = () => {
           )}
         </div>
 
-        {fileError && (
+        {fileError && !showCamera && (
           <div className="flex items-center text-red-600 mt-4">
             <AlertCircle className="w-5 h-5 mr-2" />
             <div dangerouslySetInnerHTML={{ __html: fileError }} />
